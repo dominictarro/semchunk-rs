@@ -35,17 +35,16 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --manifest-path ./main/Cargo.toml --verbose
       - name: Download Roberta language files
         run: |
           ./scripts/download_lang_files.sh --verbose --dir ${DATA_DIR}
+      - name: Download Gutenberg benchmark files
+        run: |
+          ./scripts/download_bench_files.sh --verbose --dir ${DATA_DIR}
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path ./main/Cargo.toml --verbose --all-features
+          args: --verbose --all-features
 
   clippy:
     name: Clippy
@@ -61,4 +60,4 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --manifest-path ./main/Cargo.toml --all-targets --all-features  -- -D warnings
+          args: --all-targets --all-features  -- -D warnings

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 source $(dirname "${BASH_SOURCE[0]}")/env.sh
 
@@ -26,6 +26,7 @@ fi
 
 VERBOSE=`check_flag "-v" "--verbose" "$@" && echo "true" || echo "false"`
 DIR=`get_param_value "-d" "--dir" "$@"`
+DIR=$(echo "$DIR" | sed 's:/*$::')
 if ! [ -d "$DIR" ]; then
     mkdir -p $DIR
 fi
