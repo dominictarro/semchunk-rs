@@ -27,7 +27,7 @@
 //! # Example
 //! 
 //! ```
-//! use chunker::Chunker;
+//! use semchunk_rs::Chunker;
 //! 
 //! let chunker = Chunker::new(4, Box::new(|s: &str| s.len() - s.replace(" ", "").len() + 1));
 //! let text = "The quick brown fox jumps over the lazy dog.";
@@ -48,7 +48,7 @@
 //!    false,
 //! ).expect("Error loading tokenizer");
 //! let token_counter = Box::new(move |s: &str| tokenizer.tokenize(s).len());
-//! let chunker = Chunker::new(512, token_counter);
+//! let chunker = Chunker::new(4, token_counter);
 //! let text = "The quick brown fox jumps over the lazy dog.";
 //! let chunks = chunker.chunk(text);
 //! assert_eq!(chunks, vec!["The quick brown fox", "jumps over the", "lazy dog."]);
