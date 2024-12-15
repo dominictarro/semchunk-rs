@@ -2,7 +2,7 @@
 name = "semchunk-rs"
 version = "0.1.0"
 authors = ["Dominic Tarro"]
-description = "A Rust library for semantic text chunking."
+description = "A fast and lightweight Rust library for splitting text into semantically meaningful chunks."
 repository = "https://github.com/dominictarro/semchunk-rs"
 license = "MIT"
 readme = "README.md"
