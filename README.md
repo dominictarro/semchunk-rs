@@ -1,5 +1,7 @@
 # semchunk-rs
 
+[![Downloads](https://img.shields.io/crates/d/semchunk-rs)](https://crates.io/crates/semchunk-rs) [![Version](https://img.shields.io/crates/v/semchunk-rs)](https://crates.io/crates/semchunk-rs) [![License](https://img.shields.io/crates/l/semchunk-rs)](https://github.com/dominictarro/semchunk-rs/blob/main/LICENSE) [![Docs](https://docs.rs/semchunk-rs/badge.svg)](https://docs.rs/semchunk-rs)
+
 A port of [umarbutler/semchunk](https://github.com/umarbutler/semchunk) into Rust for splitting text into semantically meaningful chunks.
 
 ## Usage
