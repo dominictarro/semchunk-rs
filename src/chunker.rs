@@ -218,8 +218,13 @@ impl Chunker {
             // identify empty chunks and remove them and their offsets
             for i in (0..chunks.len()).rev() {
                 if chunks[i].is_empty() {
-                    // extend the ending offset of the previous chunk to the current chunk's ending offset
-                    // so that the offsets are contiguous and accurate to the input text
+                    // Extend the ending offset of the previous chunk to the current chunk's ending offset
+                    // so that the offsets are contiguous and accurate to the input text.
+                    //
+                    // I tried modifying _chunk_with_offsets to return the *true* last index so I wouldn't have to rely
+                    // on the last chunk's offset and thus not have to do the below. However, there's an edge case
+                    // where the separator isn't reappended to the last split's chunk, causing the lengths to be off.
+                    // This edge case happened during tests with gutenberg's shakespeare-hamlet.txt.
                     if i > 0 {
                         offsets[i - 1].1 = offsets[i].1;
                     }
