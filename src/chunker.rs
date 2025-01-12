@@ -139,6 +139,104 @@ impl Chunker {
         chunks
     }
 
+    /// Recursively chunks the given text into segments based on the maximum number of tokens per chunk.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `text` - A string slice that holds the text to be chunked.
+    /// * `recursion_depth` - The current recursion depth.
+    /// * `offset_start` - The starting offset of the text.
+    /// 
+    /// # Returns
+    /// 
+    /// A vector of string slices representing the chunks of the split text.
+    pub fn _chunk_with_offsets(
+        &self,
+        text: &str,
+        recursion_depth: usize,
+        offset_start: usize,
+    ) -> (Vec<String>, Vec<(usize, usize)>) {
+        let (separator, separator_is_whitespace, text_splits) = self.splitter.split_text(text);
+        // println!("{}start chunk: ostart={} separator={:?}", "| ".repeat(recursion_depth), offset_start, separator);
+
+        let mut chunks: Vec<String> = Vec::new();
+        let mut offsets: Vec<(usize, usize)> = Vec::new();
+        let mut offset_start = offset_start;
+        let mut offset_end = offset_start;
+
+        // Iterate through the splits
+        let mut i = 0;
+        while i < text_splits.len() {
+            if (self.token_counter)(text_splits[i]) > self.chunk_size {
+                // If the split is over the chunk size, recursively chunk it.
+                let (sub_chunks, sub_offsets) = self._chunk_with_offsets(
+                    text_splits[i],
+                    recursion_depth + 1,
+                    offset_end
+                );
+
+                offset_end = sub_offsets.last().unwrap().1;
+                for (sub_chunk, sub_offset) in std::iter::zip(sub_chunks, sub_offsets) {
+                    chunks.push(sub_chunk);
+                    offsets.push(sub_offset);
+                }
+                i += 1;
+            } else {
+                // If the split is equal to or under the chunk size, add it and any subsequent splits to a new chunk until the chunk size is reached.
+                let (split_idx, merged_chunk) = self.merge_splits(&text_splits[i..], separator);
+                offset_end += merged_chunk.len();
+                chunks.push(merged_chunk);
+                offsets.push((offset_start, offset_end));
+                i += split_idx;
+            }
+
+            let n_chunks = chunks.len();
+            // If the separator is not whitespace and the split is not the last split, add the separator to the end of the last chunk if doing so would not cause it to exceed the chunk size otherwise add the splitter as a new chunk.
+            if i < text_splits.len() {
+                if !separator_is_whitespace {
+                    let last_chunk_with_separator = chunks[n_chunks - 1].clone() + separator;
+                    if (self.token_counter)(&last_chunk_with_separator) <= self.chunk_size {
+                        chunks[n_chunks - 1] = last_chunk_with_separator;
+                        offset_end += separator.len();
+                        offsets[n_chunks - 1] = (offsets[n_chunks - 1].0, offset_end);
+                    } else {
+                        chunks.push(separator.to_string());
+                        // as if making new chunk
+                        offset_start = offset_end;
+                        offset_end += separator.len();
+                        offsets.push((offset_start, offset_end));
+                    }
+                } else {
+                    // Add the separator's length so the chunk indices are still accurate to the input text.
+                    offset_end += separator.len();
+                }
+            }
+            offset_start = offset_end;
+        }
+
+        if recursion_depth > 0 {
+            // identify empty chunks and remove them and their offsets
+            for i in (0..chunks.len()).rev() {
+                if chunks[i].is_empty() {
+                    // Extend the ending offset of the previous chunk to the current chunk's ending offset
+                    // so that the offsets are contiguous and accurate to the input text.
+                    //
+                    // I tried modifying _chunk_with_offsets to return the *true* last index so I wouldn't have to rely
+                    // on the last chunk's offset and thus not have to do the below. However, there's an edge case
+                    // where the separator isn't reappended to the last split's chunk, causing the lengths to be off.
+                    // This edge case happened during tests with gutenberg's shakespeare-hamlet.txt.
+                    if i > 0 {
+                        offsets[i - 1].1 = offsets[i].1;
+                    }
+                    chunks.remove(i);
+                    offsets.remove(i);
+                }
+            }
+        }
+        // println!("{}end chunk: clen={} olen={}", "| ".repeat(recursion_depth), chunks.len(), offsets.len());
+        (chunks, offsets)
+    }
+
     /// Merges first N splits into a chunk that has <= chunk_size tokens.
     ///
     /// # Arguments
@@ -223,6 +321,33 @@ impl Chunker {
     pub fn chunk(&self, text: &str) -> Vec<String> {
         self._chunk(text, 0)
     }
+
+    /// Chunks the given text into segments based on the maximum number of tokens per chunk and returns the offsets of the chunks.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `text` - A string slice that holds the text to be chunked.
+    /// 
+    /// # Returns
+    /// 
+    /// A tuple containing:
+    /// * A vector of string slices representing the chunks of the split text.
+    /// * A vector of tuples representing the offsets of the chunks.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use semchunk_rs::Chunker;
+    /// 
+    /// let chunker = Chunker::new(4, Box::new(|s: &str| s.len() - s.replace(" ", "").len() + 1));
+    /// let text = "The quick brown fox jumps over the lazy dog.";
+    /// let (chunks, offsets) = chunker.chunk_with_offset(text);
+    /// assert_eq!(chunks, vec!["The quick brown fox", "jumps over the lazy", "dog."]);
+    /// assert_eq!(offsets, vec![(0, 19), (20, 39), (40, 44)]);
+    /// ```
+    pub fn chunk_with_offset(&self, text: &str) -> (Vec<String>, Vec<(usize, usize)>) {
+        self._chunk_with_offsets(text, 0, 0)
+    }
 }
 
 
@@ -291,6 +416,37 @@ mod chunker_tests {
 
     #[test]
     #[cfg(feature = "rust_tokenizers")]
+    fn test_chunk_with_offsets_rust_tokenizers() {
+        let tokenizer = RobertaTokenizer::from_file(
+            get_roberta_vocab_path(),
+            get_roberta_merges_path(),
+            false,
+            false,
+        )
+        .expect("Error loading tokenizer");
+
+        let token_counter = Box::new(move |s: &str| tokenizer.tokenize(s).len());
+        let chunker = Chunker::new(10, token_counter);
+        let text = "The quick brown fox jumps over the lazy dog.\n\nThe subject is\n\t- \"The quick brown fox\"\n\t- \"jumps over\"\n\t- \"the lazy dog\"";
+        let (chunks, offsets) = chunker.chunk_with_offset(text);
+        assert_eq!(
+            chunks,
+            vec![
+                "The quick brown fox jumps over the lazy dog.",
+                "The subject is\n\t- \"The quick brown fox\"",
+                "\t- \"jumps over\"\n\t- \"the lazy dog\"",
+            ]
+        );
+        assert_eq!(
+            offsets,
+            // notably missing chars 44, 45, 85 since those
+            // were empty whitespace splitters that got dropped
+            vec![(0, 44), (46, 85), (86, 119)]
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "rust_tokenizers")]
     fn test_chunk_rust_tokenizers_gutenberg_austen_emma() {
         let tokenizer = RobertaTokenizer::from_file(
             get_roberta_vocab_path(),
@@ -341,6 +497,111 @@ mod chunker_tests {
         let text = read_gutenberg_corpus("shakespeare-hamlet.txt");
         let chunks = chunker.chunk(&text);
         assert_eq!(chunks.len(), 4474);
+    }
+
+    #[test]
+    #[cfg(feature = "rust_tokenizers")]
+    fn test_chunk_with_offsets_rust_tokenizers_gutenberg_austen_emma() {
+        let tokenizer = RobertaTokenizer::from_file(
+            get_roberta_vocab_path(),
+            get_roberta_merges_path(),
+            false,
+            false,
+        )
+        .expect("Error loading tokenizer");
+
+        let token_counter = Box::new(move |s: &str| tokenizer.tokenize(s).len());
+        let chunker = Chunker::new(10, token_counter);
+        let text = read_gutenberg_corpus("austen-emma.txt");
+        let (chunks, offsets) = chunker.chunk_with_offset(&text);
+        assert_eq!(chunks.len(), 606);
+        assert_eq!(offsets.len(), 606);
+        assert_eq!(offsets.last().unwrap().1, text.len());
+        for (i, (start, end)) in offsets.iter().enumerate() {
+            // compare only using the text's first chunk.len() characters since the separator
+            // isn't always included in the chunk
+            assert_eq!(
+                text.get(*start..*end)
+                    .unwrap()
+                    .get(..chunks[i].len())
+                    .unwrap(),
+                chunks[i]
+            );
+            // assert the each offset toop's end is <= to the next offset's start
+            if i < offsets.len() - 1 {
+                assert!(offsets[i].1 <= offsets[i + 1].0);
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "rust_tokenizers")]
+    fn test_chunk_with_offsets_rust_tokenizers_gutenberg_milton_paradise() {
+        let tokenizer = RobertaTokenizer::from_file(
+            get_roberta_vocab_path(),
+            get_roberta_merges_path(),
+            false,
+            false,
+        )
+        .expect("Error loading tokenizer");
+
+        let token_counter = Box::new(move |s: &str| tokenizer.tokenize(s).len());
+        let chunker = Chunker::new(10, token_counter);
+        let text = read_gutenberg_corpus("milton-paradise.txt");
+        let (chunks, offsets) = chunker.chunk_with_offset(&text);
+        assert_eq!(chunks.len(), 12196);
+        assert_eq!(offsets.len(), 12196);
+        assert_eq!(offsets.last().unwrap().1, text.len());
+        for (i, (start, end)) in offsets.iter().enumerate() {
+            // compare only using the text's first chunk.len() characters since the separator
+            // isn't always included in the chunk
+            assert_eq!(
+                text.get(*start..*end)
+                    .unwrap()
+                    .get(..chunks[i].len())
+                    .unwrap(),
+                chunks[i]
+            );
+            // assert the each offset toop's end is <= to the next offset's start
+            if i < offsets.len() - 1 {
+                assert!(offsets[i].1 <= offsets[i + 1].0);
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "rust_tokenizers")]
+    fn test_chunk_with_offsets_rust_tokenizers_gutenberg_shakespeare_hamlet() {
+        let tokenizer = RobertaTokenizer::from_file(
+            get_roberta_vocab_path(),
+            get_roberta_merges_path(),
+            false,
+            false,
+        )
+        .expect("Error loading tokenizer");
+
+        let token_counter = Box::new(move |s: &str| tokenizer.tokenize(s).len());
+        let chunker = Chunker::new(10, token_counter);
+        let text = read_gutenberg_corpus("shakespeare-hamlet.txt");
+        let (chunks, offsets) = chunker.chunk_with_offset(&text);
+        assert_eq!(chunks.len(), 4474);
+        assert_eq!(offsets.len(), 4474);
+        assert_eq!(offsets.last().unwrap().1, text.len());
+        for (i, (start, end)) in offsets.iter().enumerate() {
+            // compare only using the text's first chunk.len() characters since the separator
+            // isn't always included in the chunk
+            assert_eq!(
+                text.get(*start..*end)
+                    .unwrap()
+                    .get(..chunks[i].len())
+                    .unwrap(),
+                chunks[i]
+            );
+            // assert the each offset toop's end is <= to the next offset's start
+            if i < offsets.len() - 1 {
+                assert!(offsets[i].1 <= offsets[i + 1].0);
+            }
+        }
     }
 
     #[test]
